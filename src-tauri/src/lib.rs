@@ -4,13 +4,14 @@ mod model;
 mod monitor;
 mod sensor;
 mod state;
+mod tray;
 
 use commands::AppCtx;
 use gate::Gate;
 use state::Store;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,6 +20,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_positioner::init())
         .manage(AppCtx {
             store: store.clone(),
             gate: gate.clone(),
@@ -26,9 +28,29 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_roster,
             commands::allow_payment,
-            commands::deny_payment
+            commands::deny_payment,
+            commands::sync_tray
         ])
         .setup(move |app| {
+            // Menu-bar app: no dock icon, panel dismisses on click-away.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            tray::setup_tray(app)?;
+            tray::hide_on_blur(&app.handle().clone());
+
+            // Frosted panel. Non-fatal: a solid dark fallback background is in the CSS.
+            #[cfg(target_os = "macos")]
+            if let Some(win) = app.get_webview_window("main") {
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                let _ = apply_vibrancy(
+                    &win,
+                    NSVisualEffectMaterial::HudWindow,
+                    Some(NSVisualEffectState::Active),
+                    Some(12.0),
+                );
+            }
+
             // Agent monitor: rescan running processes every few seconds.
             let monitor_handle = app.handle().clone();
             let monitor_store = store.clone();

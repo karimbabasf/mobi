@@ -1,22 +1,60 @@
-import { invoke } from "@tauri-apps/api/core";
+import { allowPayment, denyPayment, getRoster, onRosterUpdated, syncTray } from "./api";
+import { renderPanel, type UiState } from "./render";
 
-let greetInputEl: HTMLInputElement | null;
-let greetMsgEl: HTMLElement | null;
+const state: UiState = { tab: "agents", selected: null };
+const app = document.getElementById("app")!;
 
-async function greet() {
-  if (greetMsgEl && greetInputEl) {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsgEl.textContent = await invoke("greet", {
-      name: greetInputEl.value,
-    });
+async function refresh(): Promise<void> {
+  const r = await getRoster();
+  // Drop a stale selection if that agent went away.
+  if (state.selected && !r.entries.some((e) => e.agent.id === state.selected)) {
+    state.selected = null;
   }
+  app.innerHTML = renderPanel(state, r);
+  void syncTray(r.pendingCount > 0);
 }
 
-window.addEventListener("DOMContentLoaded", () => {
-  greetInputEl = document.querySelector("#greet-input");
-  greetMsgEl = document.querySelector("#greet-msg");
-  document.querySelector("#greet-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    greet();
-  });
+app.addEventListener("click", async (ev) => {
+  const t = ev.target as HTMLElement;
+
+  const tab = t.closest("[data-tab]");
+  if (tab) {
+    state.tab = tab.getAttribute("data-tab") as UiState["tab"];
+    state.selected = null;
+    await refresh();
+    return;
+  }
+
+  const allow = t.closest("[data-allow]");
+  if (allow) {
+    await allowPayment(allow.getAttribute("data-allow")!);
+    return;
+  }
+
+  const deny = t.closest("[data-deny]");
+  if (deny) {
+    await denyPayment(deny.getAttribute("data-deny")!);
+    return;
+  }
+
+  if (t.closest("[data-back]")) {
+    state.selected = null;
+    await refresh();
+    return;
+  }
+
+  const row = t.closest("[data-agent]");
+  if (row) {
+    state.selected = row.getAttribute("data-agent");
+    await refresh();
+  }
 });
+
+void onRosterUpdated(() => {
+  void refresh();
+});
+
+void refresh();
+
+// Keep elapsed times and the demo stream feeling live.
+setInterval(() => void refresh(), 2000);
