@@ -28,3 +28,9 @@ pub fn deny_payment(id: String, ctx: State<AppCtx>, app: AppHandle) -> bool {
     let _ = app.emit("roster-updated", ());
     ok
 }
+
+/// Frontend calls this after each render so the menu-bar icon reflects pending approvals.
+#[tauri::command]
+pub fn sync_tray(app: AppHandle, pending: bool) {
+    crate::tray::set_tray_alert(&app, pending);
+}
